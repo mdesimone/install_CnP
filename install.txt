@@ -1,0 +1,109 @@
+
+# 2.2.1 Disable Firewall/IPtables
+service iptables stop
+chkconfig iptables off
+service ip6tables stop
+chkconfig ip6tables off
+
+# 2.2.2 Remove messaging systems
+#rpm -qa | egrep -i "matahari|qpid"
+#yum erase Package1 Package2 ...
+rpm -qa | egrep -i "matahari|qpid" |while read package
+do
+     yum -y erase $package
+done
+
+# 2.2.3 Disable SE Linux
+/bin/echo 0 > /selinux/enforce
+/bin/sed -i.bak -e 's/^SELINUX=.*/SELINUX=disabled/g' /etc/selinux/config
+
+# 2.2.4 Install Java
+# Remove other Javas
+#rpm -qa | egrep -i '(jdk|jre|java)'
+#yum -y remove package-name
+rpm -qa|egrep -i "java|jre|jdk" |while read package
+do
+     rpm -e --nodeps $package
+done
+
+# May need wget
+
+wget -h > /dev/null 2>&1 || yum -y install wget
+
+# This still works from the old guide
+wget -O jre-6u31-linux-x64-rpm.bin http://javadl.sun.com/webapps/download/AutoDL?BundleId=59622
+
+chmod +x ./jre-6u31-linux-x64-rpm.bin
+./jre-6u31-linux-x64-rpm.bin
+export JAVA_HOME=/usr/java/default/bin
+echo "export JAVA_HOME=/usr/java/default/bin" >> /etc/profile
+
+java -version
+
+# 2.2.5 Zenoss Deps
+rpm -Uvh http://deps.zenoss.com/yum/zenossdeps-4.2.x-1.el6.noarch.rpm
+yum clean all
+
+# 2.2.6 Install ZenDS
+yum -y --nogpgcheck localinstall zends*
+
+service zends start
+chkconfig --level 2345 zends on
+
+# 2.3.1 Install Resource Manager
+yum -y --nogpgcheck localinstall zenoss_resmgr*
+
+# Start Services
+for svc in rabbitmq-server memcached snmpd; do chkconfig $svc on; service $svc start; done
+
+# 2.3.3 Install MySQL Tuner
+
+su - zenoss
+cd $ZENHOME/bin
+wget --no-check-certificate mysqltuner.pl
+chmod 755 mysqltuner.pl
+exit
+
+# 2.3.4 Install and initialize ZenUP
+yum -y --nogpgcheck localinstall zenup*
+
+chown zenoss:zenoss zenoss_resmgr-4.2.4*pristine*
+cp zenoss_resmgr-4.2.4*pristine* ~zenoss
+su - zenoss
+zenup init zenoss_resmgr-4.2.4*pristine* $ZENHOME
+
+zenup status
+exit
+
+# 2.3.5 Start the system
+service zenoss start
+
+# 2.3.6 - Patch the system
+chown zenoss:zenoss zenoss_resmgr*zup
+cp zenoss_resmgr-4.2.4-*zup ~zenoss
+su - zenoss
+zenoss stop
+
+#pgrep -fl /zenoss
+pgrep -fl /zenoss && pkill -f /zenoss
+
+
+# Dry run
+zenup install --dry-run zenoss_resmgr*zup
+# Install it if there are no errors
+zenup install zenoss_resmgr-*zup
+
+# Check Status
+zenup status
+
+zenoss start
+exit
+
+# 2.3.7 Windows Monitoring
+
+service zenoss stop
+su - zenoss -c "zeneventserver start; zencatalogservice start"
+yum -y --nogpgcheck localinstall zenoss_msmonitor-*
+service zenoss start
+
+#
